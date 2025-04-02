@@ -9,6 +9,7 @@ use embassy_usb::{Config, UsbDevice};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
 use static_cell::ConstStaticCell;
+use embassy_time::{Duration, Timer};
 
 use postcard_rpc::{
     define_dispatch,
@@ -100,7 +101,7 @@ async fn main(spawner: Spawner) {
         peripheral_config.rcc.apb3_pre = APBPrescaler::DIV2;
         peripheral_config.rcc.apb4_pre = APBPrescaler::DIV2;
 
-        peripheral_config.rcc.mux.spdifrxsel = mux::Spdifrxsel::PLL1_Q;
+        peripheral_config.rcc.mux.usbsel = mux::Usbsel::HSI48; 
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
@@ -127,6 +128,9 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
+    // give USB enough start up time
+    Timer::after_millis(1000).await;
+
     loop {
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
@@ -137,6 +141,7 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
+
     usb.run().await;
 }
 
