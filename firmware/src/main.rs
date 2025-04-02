@@ -4,8 +4,23 @@
 use defmt::{info, trace};
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_usb::{Config, UsbDevice};
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
+use icd::{PingEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
+fn usb_config() -> Config<'static> {
+    let mut config = Config::new(0x16c0, 0x27DD);
+    config.manufacturer = Some("Nase");
+    config.product = Some("flashy");
+    config.serial_number = Some("12345678");
+
+    config.device_class = 0xEF;
+    config.device_sub_class = 0x02;
+    config.device_protocol = 0x01;
+    config.composite_with_iads = true;
+
+    config
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
