@@ -33,6 +33,8 @@ topics! {
     | TopicTy                   | MessageTy     | Path              | Cfg                           |
     | -------                   | ---------     | ----              | ---                           |
 }
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+pub struct BadPositionError;
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
 pub struct SingleLed {

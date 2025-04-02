@@ -29,15 +29,12 @@ critical-section = "1.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false }
 grounded = "0.2.0"
+postcard-rpc = { version = "0.11",   features = ["embassy-usb-0_4-server"] }
+postcard = { version = "1.0.10" }
+postcard-schema = { version = "0.2.1", features = ["derive"] }
+portable-atomic = { version = "1.6.0", features = ["critical-section"] }
 
-# cargo build/run
-[profile.dev]
-codegen-units = 1
-debug = 2
-debug-assertions = true # <-
-incremental = false
-opt-level = 3 # <-
-overflow-checks = true # <-
+icd = { path = "../icd" }
 
 # cargo test
 [profile.test]
