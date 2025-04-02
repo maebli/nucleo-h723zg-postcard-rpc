@@ -92,6 +92,7 @@ async fn main(spawner: Spawner) {
             divq: Some(PllDiv::DIV2),
             divr: Some(PllDiv::DIV2),
         });
+        peripheral_config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); 
         peripheral_config.rcc.sys = Sysclk::PLL1_P;
         peripheral_config.rcc.ahb_pre = AHBPrescaler::DIV2;
         peripheral_config.rcc.apb1_pre = APBPrescaler::DIV2;
