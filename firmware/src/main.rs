@@ -128,13 +128,11 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
-    // give USB enough start up time
-    Timer::after_millis(1000).await;
-
     loop {
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
         let _ = server.run().await;
+        Timer::after_millis(10).await;
     }
 }
 
