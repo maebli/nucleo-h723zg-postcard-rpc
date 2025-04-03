@@ -122,7 +122,8 @@ async fn main(spawner: Spawner) {
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
-    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
+    let unique_id = get_unique_id();
+
 
     const USB_BUF_LEN: usize = 256;
     static USB_BUFFER: StaticCell<[u8; USB_BUF_LEN]> = StaticCell::new();
@@ -134,7 +135,7 @@ async fn main(spawner: Spawner) {
     let config = usb_config();
 
     let context = Context {
-        unique_id: 0,
+        unique_id,
     };
 
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
@@ -171,7 +172,13 @@ fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
 
 fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
     info!("unique_id");
+    context.unique_id
+}
+
+fn get_unique_id() -> u64{
+    info!("unique_id");
+
     let full_uid = uid::uid(); // [u8; 24]
     let slice: [u8; 8] = full_uid[0..8].try_into().expect("slice with incorrect length");
-    u64::from_be_bytes(slice) 
+    u64::from_be_bytes(slice) // or from_le_bytes if needed
 }
