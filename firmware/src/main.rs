@@ -111,7 +111,7 @@ async fn main(spawner: Spawner) {
     let usb_buffer = USB_BUFFER.init([0u8; USB_BUF_LEN]);
 
     use static_cell::StaticCell;
-    let driver = usb::Driver::new_hs(p.USB_OTG_HS, Irqs,p.PA12,p.PA11,usb_buffer,Default::default());
+    let driver = usb::Driver::new_fs(p.USB_OTG_HS, Irqs,p.PA12,p.PA11,usb_buffer,Default::default());
     let pbufs = PBUFS.take();
     let config = usb_config();
 
@@ -128,6 +128,7 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
+    
     loop {
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
