@@ -3,7 +3,7 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_stm32::{bind_interrupts, peripherals::{USB_OTG_HS},usb};
+use embassy_stm32::{bind_interrupts, peripherals::{USB_OTG_HS,FLASH},usb,flash::{Flash, Blocking}};
 use embassy_stm32::usb::{Driver, Instance,InterruptHandler};
 use embassy_usb::{Config, UsbDevice};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -19,12 +19,24 @@ use postcard_rpc::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
             PacketBuffers,
         },
-        Dispatch, Server,
+        Dispatch, Server,SpawnContext
     },
 };
 use icd::{PingEndpoint,GetUniqueIdEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
-pub struct Context;
+pub struct Context {
+    pub unique_id: u64,
+}
+
+pub struct SpawnCtx;
+
+impl SpawnContext for Context {
+    type SpawnCtxt = SpawnCtx;
+    fn spawn_ctxt(&mut self) -> Self::SpawnCtxt {
+        SpawnCtx
+    }
+}
+
 type AppDriver = usb::Driver<'static, USB_OTG_HS>;
 type AppStorage = WireStorage<ThreadModeRawMutex, AppDriver, 256, 256, 64, 256>;
 type BufStorage = PacketBuffers<1024, 1024>;
@@ -109,6 +121,7 @@ async fn main(spawner: Spawner) {
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
+    let unique_id = defmt::unwrap!(get_unique_id(&mut p.FLASH));
 
     const USB_BUF_LEN: usize = 256;
     static USB_BUFFER: StaticCell<[u8; USB_BUF_LEN]> = StaticCell::new();
@@ -119,7 +132,10 @@ async fn main(spawner: Spawner) {
     let pbufs = PBUFS.take();
     let config = usb_config();
 
-    let context = Context;
+    let context = Context {
+        unique_id: 0,
+    };
+
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
     let dispatcher = MyApp::new(context, spawner.into());
     let vkk = dispatcher.min_key_len();
@@ -148,11 +164,25 @@ pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
 }
 
 fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
-    trace!("ping");
+    info!("ping");
     rqst
 }
 
 fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
     info!("unique_id");
     42
+}
+
+pub fn get_unique_id(flash: &mut FLASH) -> Option<u64> {
+    let mut flash = Flash::new_blocking(flash);
+
+    // STM32H7 unique ID is at address 0x1FF1E800
+    const UID_ADDRESS: u32 = 0x1FF1E800;
+    
+    let mut id = [0u8; core::mem::size_of::<u64>()];
+    if let Ok(_) = flash.blocking_read(UID_ADDRESS, &mut id) {
+        Some(u64::from_be_bytes(id))
+    } else {
+        None
+    }
 }
