@@ -22,7 +22,7 @@ use postcard_rpc::{
         Dispatch, Server,
     },
 };
-use icd::{PingEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
+use icd::{PingEndpoint,GetUniqueIdEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
 pub struct Context;
 type AppDriver = usb::Driver<'static, USB_OTG_HS>;
@@ -67,6 +67,7 @@ define_dispatch! {
         | EndpointTy                | kind      | handler                       |
         | ----------                | ----      | -------                       |
         | PingEndpoint              | blocking  | ping_handler                  |
+        | GetUniqueIdEndpoint       | blocking  | unique_id_handler             |
     };
     topics_in: {
         list: TOPICS_IN_LIST;
@@ -81,6 +82,9 @@ define_dispatch! {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+
+    // dfmt trace
+    trace!("Starting up...");
     let mut peripheral_config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -140,11 +144,15 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
-
     usb.run().await;
 }
 
 fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
-    info!("ping");
+    trace!("ping");
     rqst
+}
+
+fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
+    info!("unique_id");
+    42
 }
