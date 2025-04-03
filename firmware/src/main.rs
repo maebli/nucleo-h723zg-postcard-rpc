@@ -5,6 +5,7 @@ use defmt::{info, trace};
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, peripherals::{USB_OTG_HS,FLASH},usb,flash::{Flash, Blocking}};
 use embassy_stm32::usb::{Driver, Instance,InterruptHandler};
+use embassy_stm32::uid;
 use embassy_usb::{Config, UsbDevice};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
@@ -170,19 +171,7 @@ fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
 
 fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
     info!("unique_id");
-    42
-}
-
-pub fn get_unique_id(flash: &mut FLASH) -> Option<u64> {
-    let mut flash = Flash::new_blocking(flash);
-
-    // STM32H7 unique ID is at address 0x1FF1E800
-    const UID_ADDRESS: u32 = 0x1FF1E800;
-    
-    let mut id = [0u8; core::mem::size_of::<u64>()];
-    if let Ok(_) = flash.blocking_read(UID_ADDRESS, &mut id) {
-        Some(u64::from_be_bytes(id))
-    } else {
-        None
-    }
+    let full_uid = uid::uid(); // [u8; 24]
+    let slice: [u8; 8] = full_uid[0..8].try_into().expect("slice with incorrect length");
+    u64::from_be_bytes(slice) 
 }
