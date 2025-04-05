@@ -3,6 +3,7 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
+use embassy_stm32::gpio::{Output, Level, Speed};
 use embassy_stm32::{bind_interrupts, peripherals::{USB_OTG_HS,FLASH},usb,flash::{Flash, Blocking}};
 use embassy_stm32::usb::{Driver, Instance,InterruptHandler};
 use embassy_stm32::uid;
@@ -121,6 +122,9 @@ async fn main(spawner: Spawner) {
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
+
+    let mut led = Output::new(p.PB14, Level::High, Speed::Low);
+
     let unique_id = get_unique_id();
 
 
@@ -149,6 +153,7 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
+    spawner.must_spawn(led_task(led));
     
     loop {
         // If the host disconnects, we'll return an error here.
@@ -158,6 +163,14 @@ async fn main(spawner: Spawner) {
     }
 }
 
+
+#[embassy_executor::task]
+async fn led_task(mut led: Output<'static>) {
+    loop {
+        led.toggle();
+        Timer::after_millis(500).await;
+    }
+}
 
 #[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
