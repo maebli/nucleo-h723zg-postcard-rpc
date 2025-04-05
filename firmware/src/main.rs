@@ -30,6 +30,7 @@ pub struct Context {
     pub unique_id: u64,
     pub led_red: Output<'static>,
     pub led_yellow: Output<'static>,
+    pub led_green: Output<'static>,
 }
 
 pub struct SpawnCtx;
@@ -128,6 +129,7 @@ async fn main(spawner: Spawner) {
 
     let mut led_red = Output::new(p.PB14, Level::High, Speed::Low);    // LD3 (Red)
     let mut led_yellow = Output::new(p.PE1, Level::High, Speed::Low);  // LD2 (Yellow)
+    let mut led_green = Output::new(p.PB0, Level::High, Speed::Low);   // LD1 (Green)
     
     let unique_id = get_unique_id();
 
@@ -145,6 +147,7 @@ async fn main(spawner: Spawner) {
         unique_id,
         led_red,
         led_yellow,
+        led_green,
     };
 
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
@@ -190,6 +193,7 @@ async fn led_toggle_single_by_pos(
     match pos {
         3 => toggle_red(&mut context.led_red),
         2 => toggle_yellow(&mut context.led_yellow),
+        1 => toggle_green(&mut context.led_green),
         _ => (),
     }
 }
