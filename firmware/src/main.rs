@@ -79,7 +79,6 @@ define_dispatch! {
 
         | EndpointTy                | kind      | handler                       |
         | ----------                | ----      | -------                       |
-        | PingEndpoint              | blocking  | ping_handler                  |
         | GetUniqueIdEndpoint       | blocking  | unique_id_handler             |
     };
     topics_in: {
@@ -165,10 +164,6 @@ pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
     usb.run().await;
 }
 
-fn ping_handler(_context: &mut Context, _header: VarHeader, rqst: u32) -> u32 {
-    info!("ping");
-    rqst
-}
 
 fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
     info!("unique_id");
