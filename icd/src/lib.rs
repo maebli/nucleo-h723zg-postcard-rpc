@@ -18,6 +18,7 @@ endpoints! {
     | GetUniqueIdEndpoint       | ()            | u64                   | "unique_id/get"   |
     | SetSingleLedEndpoint      | SingleLed     | SingleLedSetResult    | "led/set_one"     |
     | SetAllLedEndpoint         | AllLedArray   | ()                    | "led/set_all"     |
+    | ToggleLedByPosEndpoint    | u32           | ()                    | "led/toggle_by_number"  |
 }
 
 topics! {

@@ -6,7 +6,7 @@ use postcard_rpc::{
 use std::convert::Infallible;
 use icd::{
     BadPositionError, GetUniqueIdEndpoint, Rgb8, SetAllLedEndpoint,
-    SetSingleLedEndpoint, SingleLed,
+    SetSingleLedEndpoint, SingleLed, ToggleLedByPosEndpoint,
 };
 
 pub struct WorkbookClient {
@@ -64,6 +64,16 @@ impl WorkbookClient {
     pub async fn get_id(&self) -> Result<u64, WorkbookError<Infallible>> {
         let id = self.client.send_resp::<GetUniqueIdEndpoint>(&()).await?;
         Ok(id)
+    }
+
+    pub async fn toggle_led_by_pos(
+        &self,
+        position: u32,
+    ) -> Result<(), WorkbookError<BadPositionError>> {
+        self.client
+            .send_resp::<ToggleLedByPosEndpoint>(&position)
+            .await?;
+        Ok(())
     }
 
     pub async fn set_rgb_single(

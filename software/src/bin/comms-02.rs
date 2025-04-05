@@ -77,6 +77,30 @@ async fn main() {
                 }
                 println!();
             }
+            ["toggle", pos] => {
+                let Ok(pos) = pos.parse::<u32>() else {
+                    println!("Bad u32: '{pos}'");
+                    continue;
+                };
+                client.toggle_led_by_pos(pos).await.unwrap();
+            }
+            ["exit"] => {
+                break;
+            }
+            ["help"] => {
+                println!("Commands:");
+                println!("* ping [n] - ping the device, default 42");
+                println!("* rgb <pos> <r> <g> <b> - set a single LED to RGB values");
+                println!("* rgball <r> <g> <b> - set all LEDs to RGB values");
+                println!("* toggle <pos> - toggle a single LED by position");
+                println!("* schema - print the schema of the device");
+                println!("* exit - exit the program");
+            }
+            [""] => (),
+            ["\n"] => (),
+            ["\r"] => (),
+            ["\r\n"] => (),
+            [] => (),
             other => {
                 println!("Error, didn't understand '{other:?};");
             }

@@ -24,10 +24,12 @@ use postcard_rpc::{
         Dispatch, Server,SpawnContext
     },
 };
-use icd::{PingEndpoint,GetUniqueIdEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
+use icd::{PingEndpoint,GetUniqueIdEndpoint, ToggleLedByPosEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
 pub struct Context {
     pub unique_id: u64,
+    pub led_red: Output<'static>,
+    pub led_yellow: Output<'static>,
 }
 
 pub struct SpawnCtx;
@@ -81,6 +83,7 @@ define_dispatch! {
         | EndpointTy                | kind      | handler                       |
         | ----------                | ----      | -------                       |
         | GetUniqueIdEndpoint       | blocking  | unique_id_handler             |
+        | ToggleLedByPosEndpoint    | async  | led_toggle_single_by_pos      |
     };
     topics_in: {
         list: TOPICS_IN_LIST;
@@ -123,8 +126,9 @@ async fn main(spawner: Spawner) {
 
     let mut p = embassy_stm32::init(peripheral_config);
 
-    let mut led = Output::new(p.PB14, Level::High, Speed::Low);
-
+    let mut led_red = Output::new(p.PB14, Level::High, Speed::Low);    // LD3 (Red)
+    let mut led_yellow = Output::new(p.PE1, Level::High, Speed::Low);  // LD2 (Yellow)
+    
     let unique_id = get_unique_id();
 
 
@@ -139,6 +143,8 @@ async fn main(spawner: Spawner) {
 
     let context = Context {
         unique_id,
+        led_red,
+        led_yellow,
     };
 
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
@@ -153,7 +159,6 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
-    spawner.must_spawn(led_task(led));
     
     loop {
         // If the host disconnects, we'll return an error here.
@@ -163,6 +168,47 @@ async fn main(spawner: Spawner) {
     }
 }
 
+#[embassy_executor::task]
+async fn led_toggle_all_task(
+    mut led_red: Output<'static>,
+    mut led_yellow: Output<'static>
+) {
+    loop {
+        // Toggle all LEDs
+        led_red.toggle();
+        led_yellow.toggle(); 
+        Timer::after_millis(500).await;
+    }
+}
+
+async fn led_toggle_single_by_pos(
+    context: &mut Context,
+    _header: VarHeader,
+    pos: u32
+) {
+    info!("led_toggle_single_by_pos: {}", pos);
+    match pos {
+        3 => toggle_red(&mut context.led_red),
+        2 => toggle_yellow(&mut context.led_yellow),
+        _ => (),
+    }
+}
+
+// Add these functions
+fn toggle_red(led: &mut Output<'_>) {
+    info!("toggle_red");
+    led.toggle();
+}
+
+fn toggle_yellow(led: &mut Output<'_>) {
+    info!("toggle_yellow");
+    led.toggle();
+}
+
+fn toggle_green(led: &mut Output<'_>) {
+    info!("toggle_green");
+    led.toggle();
+}
 
 #[embassy_executor::task]
 async fn led_task(mut led: Output<'static>) {
