@@ -3,10 +3,11 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime, VrefInt};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::pac::Interrupt::ADC3;
 use embassy_stm32::uid;
+use embassy_stm32::rcc::mux::Adcsel;
 use embassy_stm32::usb::{Driver, Instance, InterruptHandler};
 use embassy_stm32::{
     bind_interrupts,
@@ -15,8 +16,9 @@ use embassy_stm32::{
     usb,
 };
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use embassy_usb::{Config, UsbDevice};
+use embedded_hal_1::delay::DelayNs;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
 
@@ -122,6 +124,14 @@ async fn main(spawner: Spawner) {
             divq: Some(PllDiv::DIV2),
             divr: Some(PllDiv::DIV2),
         });
+        // peripheral_config.rcc.pll2 = Some(Pll {
+        //     source: PllSource::HSI,
+        //     prediv: PllPreDiv::DIV16,
+        //     mul: PllMul::MUL200,
+        //     divp: Some(PllDiv::DIV2),
+        //     divq: Some(PllDiv::DIV2),
+        //     divr: Some(PllDiv::DIV2),
+        // });
         peripheral_config.rcc.hsi48 = Some(Hsi48Config {
             sync_from_usb: true,
         });
@@ -133,6 +143,8 @@ async fn main(spawner: Spawner) {
         peripheral_config.rcc.apb4_pre = APBPrescaler::DIV2;
 
         peripheral_config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+
+        peripheral_config.rcc.mux.adcsel = Adcsel::PER;
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
@@ -178,8 +190,49 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
+    info!("USB device started");
+
+    let mut delay = Delay;
 
     let mut adc = Adc::new(p.ADC3);
+
+    adc.set_sample_time(SampleTime::CYCLES810_5);
+    // adc.set_resolution(Resolution::BITS12);
+    let mut vrefint = adc.enable_vrefint();
+    let mut temp = adc.enable_temperature();
+
+    delay.delay_us(50);
+
+    for _ in 0..8 {
+        adc.blocking_read(&mut vrefint);
+    }
+
+
+    let vrefint_sample = adc.blocking_read(&mut vrefint);
+    let convert_to_millivolts = |sample: u16| {
+        // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+        // 6.3.24 Reference voltage
+        const VREFINT_MV: u32 = 1216; // mV
+
+        (u32::from(sample) * VREFINT_MV / u32::from(vrefint_sample))
+    };
+
+    let convert_to_celcius = |sample| {
+        // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+        // 6.3.22 Temperature sensor characteristics
+        const V30: i32 = 620; // mV
+        const AVG_SLOPE: f32 = 2.0; // mV/C
+
+        let sample_mv = convert_to_millivolts(sample) as i32;
+
+        let ts_cal1 = unsafe { *(0x1FF1_E820 as *const u16) } as i32; // @30 °C
+        let ts_cal2 = unsafe { *(0x1FF1_E840 as *const u16) } as i32; // @130 °C
+        (sample as i32 - ts_cal1) as f32 * (130.0 - 30.0) / (ts_cal2 - ts_cal1) as f32 + 30.0
+    };
+
+    info!("VrefInt: {}", vrefint_sample);
+    const MAX_ADC_SAMPLE: u16 = (1 << 12) - 1;
+    info!("VCCA: {} mV", convert_to_millivolts(MAX_ADC_SAMPLE));
 
     loop {
         // If the host disconnects, we'll return an error here.
@@ -187,35 +240,17 @@ async fn main(spawner: Spawner) {
         let _ = server.run().await;
         Timer::after_millis(10).await;
 
-   
-        let mut vrefint = adc.enable_vrefint();
-        let vrefint_sample = adc.blocking_read(&mut vrefint); 
-
-      let convert_to_millivolts = |sample: u16| {
-            // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
-            // 6.3.24 Reference voltage
-            const VREFINT_MV: u32 = 1210; // mV
-
-            (u32::from(sample) * VREFINT_MV / u32::from(vrefint_sample)) as u16
-        };
-
-        let convert_to_celcius = |sample| {
-            // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
-            // 6.3.22 Temperature sensor characteristics
-            const V25: i32 = 760; // mV
-            const AVG_SLOPE: f32 = 2.5; // mV/C
-
-            let sample_mv = convert_to_millivolts(sample) as i32;
-
-            (sample_mv - V25) as f32 / AVG_SLOPE + 25.0
-        };
-
-        adc.set_resolution(Resolution::BITS12);
-        let mut temp = adc.enable_temperature();
+        let v = adc.blocking_read(&mut temp);
+        info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         let v = adc.blocking_read(&mut temp);
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
+
+        // Read internal voltage reference
+        let v = adc.blocking_read(&mut vrefint);
+        info!("VrefInt: {}", v);
+        panic!("Internal temp: {} ({} C)", v, celcius);
         Timer::after_millis(1000).await;
     }
 }
