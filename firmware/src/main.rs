@@ -3,16 +3,27 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Output, Level, Speed};
-use embassy_stm32::{bind_interrupts, peripherals::{USB_OTG_HS,FLASH},usb,flash::{Flash, Blocking}};
-use embassy_stm32::usb::{Driver, Instance,InterruptHandler};
+use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime};
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::pac::Interrupt::ADC3;
 use embassy_stm32::uid;
-use embassy_usb::{Config, UsbDevice};
+use embassy_stm32::usb::{Driver, Instance, InterruptHandler};
+use embassy_stm32::{
+    bind_interrupts,
+    flash::{Blocking, Flash},
+    peripherals::{FLASH, USB_OTG_HS},
+    usb,
+};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
-use static_cell::ConstStaticCell;
 use embassy_time::{Duration, Timer};
+use embassy_usb::{Config, UsbDevice};
+use static_cell::ConstStaticCell;
+use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
 
+use icd::{
+    GetUniqueIdEndpoint, PingEndpoint, ToggleLedByPosEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST,
+    TOPICS_OUT_LIST,
+};
 use postcard_rpc::{
     define_dispatch,
     header::VarHeader,
@@ -21,10 +32,9 @@ use postcard_rpc::{
             dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
             PacketBuffers,
         },
-        Dispatch, Server,SpawnContext
+        Dispatch, Server, SpawnContext,
     },
 };
-use icd::{PingEndpoint,GetUniqueIdEndpoint, ToggleLedByPosEndpoint, ENDPOINT_LIST, TOPICS_IN_LIST, TOPICS_OUT_LIST};
 
 pub struct Context {
     pub unique_id: u64,
@@ -70,7 +80,6 @@ bind_interrupts!(struct Irqs {
     OTG_HS => usb::InterruptHandler<USB_OTG_HS>;
 });
 
-
 define_dispatch! {
     app: MyApp;
     spawn_fn: spawn_fn;
@@ -99,7 +108,6 @@ define_dispatch! {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-
     // dfmt trace
     trace!("Starting up...");
     let mut peripheral_config = embassy_stm32::Config::default();
@@ -110,11 +118,13 @@ async fn main(spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV16,
             mul: PllMul::MUL200,
-            divp: Some(PllDiv::DIV2), 
+            divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV2),
             divr: Some(PllDiv::DIV2),
         });
-        peripheral_config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); 
+        peripheral_config.rcc.hsi48 = Some(Hsi48Config {
+            sync_from_usb: true,
+        });
         peripheral_config.rcc.sys = Sysclk::PLL1_P;
         peripheral_config.rcc.ahb_pre = AHBPrescaler::DIV2;
         peripheral_config.rcc.apb1_pre = APBPrescaler::DIV2;
@@ -122,24 +132,30 @@ async fn main(spawner: Spawner) {
         peripheral_config.rcc.apb3_pre = APBPrescaler::DIV2;
         peripheral_config.rcc.apb4_pre = APBPrescaler::DIV2;
 
-        peripheral_config.rcc.mux.usbsel = mux::Usbsel::HSI48; 
+        peripheral_config.rcc.mux.usbsel = mux::Usbsel::HSI48;
     }
 
     let mut p = embassy_stm32::init(peripheral_config);
 
-    let mut led_red = Output::new(p.PB14, Level::High, Speed::Low);    // LD3 (Red)
-    let mut led_yellow = Output::new(p.PE1, Level::High, Speed::Low);  // LD2 (Yellow)
-    let mut led_green = Output::new(p.PB0, Level::High, Speed::Low);   // LD1 (Green)
-    
-    let unique_id = get_unique_id();
+    let mut led_red = Output::new(p.PB14, Level::High, Speed::Low); // LD3 (Red)
+    let mut led_yellow = Output::new(p.PE1, Level::High, Speed::Low); // LD2 (Yellow)
+    let mut led_green = Output::new(p.PB0, Level::High, Speed::Low); // LD1 (Green)
 
+    let unique_id = get_unique_id();
 
     const USB_BUF_LEN: usize = 256;
     static USB_BUFFER: StaticCell<[u8; USB_BUF_LEN]> = StaticCell::new();
     let usb_buffer = USB_BUFFER.init([0u8; USB_BUF_LEN]);
 
     use static_cell::StaticCell;
-    let driver = usb::Driver::new_fs(p.USB_OTG_HS, Irqs,p.PA12,p.PA11,usb_buffer,Default::default());
+    let driver = usb::Driver::new_fs(
+        p.USB_OTG_HS,
+        Irqs,
+        p.PA12,
+        p.PA11,
+        usb_buffer,
+        Default::default(),
+    );
     let pbufs = PBUFS.take();
     let config = usb_config();
 
@@ -162,33 +178,59 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
-    
+
+    let mut adc = Adc::new(p.ADC3);
+
     loop {
         // If the host disconnects, we'll return an error here.
         // If this happens, just wait until the host reconnects
         let _ = server.run().await;
         Timer::after_millis(10).await;
+
+   
+        let mut vrefint = adc.enable_vrefint();
+        let vrefint_sample = adc.blocking_read(&mut vrefint); 
+
+      let convert_to_millivolts = |sample: u16| {
+            // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+            // 6.3.24 Reference voltage
+            const VREFINT_MV: u32 = 1210; // mV
+
+            (u32::from(sample) * VREFINT_MV / u32::from(vrefint_sample)) as u16
+        };
+
+        let convert_to_celcius = |sample| {
+            // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
+            // 6.3.22 Temperature sensor characteristics
+            const V25: i32 = 760; // mV
+            const AVG_SLOPE: f32 = 2.5; // mV/C
+
+            let sample_mv = convert_to_millivolts(sample) as i32;
+
+            (sample_mv - V25) as f32 / AVG_SLOPE + 25.0
+        };
+
+        adc.set_resolution(Resolution::BITS12);
+        let mut temp = adc.enable_temperature();
+
+        let v = adc.blocking_read(&mut temp);
+        let celcius = convert_to_celcius(v);
+        info!("Internal temp: {} ({} C)", v, celcius);
+        Timer::after_millis(1000).await;
     }
 }
 
 #[embassy_executor::task]
-async fn led_toggle_all_task(
-    mut led_red: Output<'static>,
-    mut led_yellow: Output<'static>
-) {
+async fn led_toggle_all_task(mut led_red: Output<'static>, mut led_yellow: Output<'static>) {
     loop {
         // Toggle all LEDs
         led_red.toggle();
-        led_yellow.toggle(); 
+        led_yellow.toggle();
         Timer::after_millis(500).await;
     }
 }
 
-async fn led_toggle_single_by_pos(
-    context: &mut Context,
-    _header: VarHeader,
-    pos: u32
-) {
+async fn led_toggle_single_by_pos(context: &mut Context, _header: VarHeader, pos: u32) {
     info!("led_toggle_single_by_pos: {}", pos);
     match pos {
         3 => toggle_red(&mut context.led_red),
@@ -227,16 +269,17 @@ pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
     usb.run().await;
 }
 
-
 fn unique_id_handler(context: &mut Context, _header: VarHeader, _rqst: ()) -> u64 {
     info!("unique_id");
     context.unique_id
 }
 
-fn get_unique_id() -> u64{
+fn get_unique_id() -> u64 {
     info!("unique_id");
 
     let full_uid = uid::uid(); // [u8; 24]
-    let slice: [u8; 8] = full_uid[0..8].try_into().expect("slice with incorrect length");
+    let slice: [u8; 8] = full_uid[0..8]
+        .try_into()
+        .expect("slice with incorrect length");
     u64::from_be_bytes(slice) // or from_le_bytes if needed
 }
